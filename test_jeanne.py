@@ -6,6 +6,7 @@ import tensorflow as tf
 import argparse
 from sklearn.metrics import f1_score, cohen_kappa_score, accuracy_score, matthews_corrcoef
 from tensorflow.keras.utils import to_categorical
+from tensorflow.keras import layers
 #------------------------------------------------------------------------------------------------------------------
 
 '''
@@ -15,7 +16,7 @@ from tensorflow.keras.utils import to_categorical
 #------------------------------------------------------------------------------------------------------------------
 
 CHANNELS = 3
-IMAGE_SIZE = 100
+IMAGE_SIZE = 200
 
 ##  0, 1, 3
 ## Review documentation on tersorflow https://www.tensorflow.org/api_docs/python/tf/io/decode_jpeg
@@ -112,12 +113,11 @@ def process_path(feature, target):
     img = tf.io.read_file(file_path)
     img = tf.io.decode_image(img, channels=CHANNELS, expand_animations=False)
     
-   ## Make some augmentation if possible
-
-    img = tf.image.resize( img, [IMAGE_SIZE, IMAGE_SIZE]) # Resized images will be distorted if their original aspect ratio is not the same as size. To avoid distortions see tf.image.resize_with_pad
-   
    ## Reshape the image to get the right dimensions for the initial input in the model
+    img = tf.image.resize( img, [IMAGE_SIZE, IMAGE_SIZE])
     img = tf.reshape(img, [-1])
+
+    # Augment images
 
     return img, label
 #------------------------------------------------------------------------------------------------------------------
@@ -142,6 +142,37 @@ def get_target(num_classes):
     return y_target
 #------------------------------------------------------------------------------------------------------------------
 
+def read_train_data(num_classes):
+    ## Only the training set
+    ## xdf_dset ( data set )
+    ## read the data data from the file
+
+    global xdf_dset
+    weights = np.array(xdf_dset['target'].value_counts().reset_index())
+    
+    for target in weights:
+        num_of_augmented_imgs = int(round(weights[0,1] / target[1],1))-1
+        new_imgs = xdf_dset[xdf_dset['target']==target[0]].copy()
+        for num in range(num_of_augmented_imgs):
+            xdf_dset = pd.concat([xdf_dset,new_imgs],axis=0)
+
+    ds_inputs = np.array(DATA_DIR + xdf_dset['id'])
+    ds_targets = get_target(num_classes)
+
+    ## Make the channel as a list to make it variable
+    ## Create the data set and call the function map to create the dataloader using
+    ## tf.data.Dataset
+    ## dataset.map
+    ## map creates an iterable
+    ## More information on https://www.tensorflow.org/tutorials/images/classification
+
+    list_ds = tf.data.Dataset.from_tensor_slices((ds_inputs,ds_targets)) # creates a tensor from the image paths and targets
+
+    final_ds = list_ds.map(process_path, num_parallel_calls=AUTOTUNE).batch(BATCH_SIZE)
+    
+    return final_ds
+
+#------------------------------------------------------------------------------------------------------------------
 
 def read_data(num_classes):
     ## Only the training set
@@ -161,7 +192,7 @@ def read_data(num_classes):
     list_ds = tf.data.Dataset.from_tensor_slices((ds_inputs,ds_targets)) # creates a tensor from the image paths and targets
 
     final_ds = list_ds.map(process_path, num_parallel_calls=AUTOTUNE).batch(BATCH_SIZE)
-
+    
     return final_ds
 #------------------------------------------------------------------------------------------------------------------
 
@@ -333,7 +364,8 @@ def main():
 
     xdf_dset = xdf_data[xdf_data["split"] == 'train'].copy()
 
-    train_ds = read_data( OUTPUTS_a )
+    train_ds = read_train_data( OUTPUTS_a )
+
     train_func(train_ds)
 
     # Preprocessing Test dataset
@@ -341,6 +373,7 @@ def main():
     xdf_dset = xdf_data[xdf_data["split"] == SPLIT].copy()
 
     test_ds= read_data(OUTPUTS_a)
+
     predict_func(test_ds)
 
     ## Metrics Function over the result of the test dataset
