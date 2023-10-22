@@ -32,9 +32,9 @@ PATH = args.path
 DATA_DIR = args.path + os.path.sep + 'Data' + os.path.sep
 SPLIT = args.split
 
-n_epoch = 1
+n_epoch = 3
 BATCH_SIZE = 32
-LR = 0.1
+LR = 0.2
 ## Process images in parallel
 AUTOTUNE = tf.data.AUTOTUNE
 
@@ -102,14 +102,16 @@ def augment(image):
 
     global seed
     # Make a new seed.
-    #seed = tf.random.split(seed, num=1)[0, :]
+    seed = tf.random.split(seed, num=1)[0, :]
 
     # Random crop back to the original size.
-    image = tf.image.stateless_random_crop(image, size=(IMAGE_SIZE, IMAGE_SIZE,CHANNELS), seed=seed)
+    #image = tf.image.stateless_random_crop(image, size=(IMAGE_SIZE, IMAGE_SIZE,CHANNELS), seed=seed)
     # Random flip left right
     image = tf.image.stateless_random_flip_left_right(image, seed=seed)
     # Random saturation
     image = tf.image.stateless_random_saturation(image, 0.1, 4.0, seed=seed)
+    # Random flip up down
+    #image = tf.image.stateless_random_flip_left_right(image, seed=seed)
     return image
 
 #------------------------------------------------------------------------------------------------------------------
@@ -134,7 +136,8 @@ def process_path(feature, target):
     
     ## Resize the image
 
-    img = tf.image.resize_with_crop_or_pad( img, IMAGE_SIZE, IMAGE_SIZE)
+    img = tf.image.resize_with_crop_or_pad( img, 300, 300)
+    img = tf.image.resize( img, [IMAGE_SIZE, IMAGE_SIZE])
 
     ## Randomly augment images
     if train == True:
@@ -253,7 +256,7 @@ def model_definition():
 
     model.add(tf.keras.layers.Dense(OUTPUTS_a, activation='softmax')) #final layer , outputs_a is the number of targets
 
-    model.compile(optimizer=Adam(lr=LR), loss='categorical_crossentropy', metrics=['accuracy'])
+    model.compile(optimizer=Adam(learning_rate=LR), loss='categorical_crossentropy', metrics=['accuracy'])
 
     save_model(model) #print Summary
     return model
