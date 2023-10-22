@@ -7,6 +7,7 @@ import argparse
 from sklearn.metrics import f1_score, cohen_kappa_score, accuracy_score, matthews_corrcoef
 from tensorflow.keras.utils import to_categorical
 from tensorflow.keras import layers
+from tensorflow.keras.optimizers import Adam
 #------------------------------------------------------------------------------------------------------------------
 
 '''
@@ -16,7 +17,7 @@ from tensorflow.keras import layers
 #------------------------------------------------------------------------------------------------------------------
 
 CHANNELS = 3
-IMAGE_SIZE = 200
+IMAGE_SIZE = 100
 
 ##  0, 1, 3
 ## Review documentation on tersorflow https://www.tensorflow.org/api_docs/python/tf/io/decode_jpeg
@@ -33,10 +34,12 @@ SPLIT = args.split
 
 n_epoch = 1
 BATCH_SIZE = 32
+LR = 0.1
 ## Process images in parallel
 AUTOTUNE = tf.data.AUTOTUNE
 
 NICKNAME = 'Jeanne'
+seed = (1,2)
 
 #------------------------------------------------------------------------------------------------------------------
 
@@ -95,6 +98,22 @@ def process_target(target_type):
 
 #------------------------------------------------------------------------------------------------------------------
 
+def augment(image):
+
+    global seed
+    # Make a new seed.
+    #seed = tf.random.split(seed, num=1)[0, :]
+
+    # Random crop back to the original size.
+    image = tf.image.stateless_random_crop(image, size=(IMAGE_SIZE, IMAGE_SIZE,CHANNELS), seed=seed)
+    # Random flip left right
+    image = tf.image.stateless_random_flip_left_right(image, seed=seed)
+    # Random saturation
+    image = tf.image.stateless_random_saturation(image, 0.1, 4.0, seed=seed)
+    return image
+
+#------------------------------------------------------------------------------------------------------------------
+
 def process_path(feature, target):
     '''
              feature is the path and id of the image
@@ -113,11 +132,16 @@ def process_path(feature, target):
     img = tf.io.read_file(file_path)
     img = tf.io.decode_image(img, channels=CHANNELS, expand_animations=False)
     
-   ## Reshape the image to get the right dimensions for the initial input in the model
-    img = tf.image.resize( img, [IMAGE_SIZE, IMAGE_SIZE])
-    img = tf.reshape(img, [-1])
+    ## Resize the image
 
-    # Augment images
+    img = tf.image.resize_with_crop_or_pad( img, IMAGE_SIZE, IMAGE_SIZE)
+
+    ## Randomly augment images
+    if train == True:
+        img = augment(img)
+
+   ## Reshape the image to get the right dimensions for the initial input in the model
+    img = tf.reshape(img, [-1])
 
     return img, label
 #------------------------------------------------------------------------------------------------------------------
@@ -140,6 +164,7 @@ def get_target(num_classes):
     y_target = np.array(end[1:])
 
     return y_target
+
 #------------------------------------------------------------------------------------------------------------------
 
 def read_train_data(num_classes):
@@ -148,13 +173,20 @@ def read_train_data(num_classes):
     ## read the data data from the file
 
     global xdf_dset
-    weights = np.array(xdf_dset['target'].value_counts().reset_index())
-    
-    for target in weights:
-        num_of_augmented_imgs = int(round(weights[0,1] / target[1],1))-1
-        new_imgs = xdf_dset[xdf_dset['target']==target[0]].copy()
-        for num in range(num_of_augmented_imgs):
-            xdf_dset = pd.concat([xdf_dset,new_imgs],axis=0)
+
+    # Drop random sample of class5 rows
+    drop_rows = xdf_dset[xdf_dset['target']=='class5'].sample(frac=0.5, random_state=123).index
+    xdf_dset = xdf_dset.drop(drop_rows)
+
+    max_class_count = (xdf_dset['target'].value_counts()).iloc[0]
+    for name in class_names:
+        num_of_name = (xdf_dset['target']==name).sum()
+        num_of_augmented_imgs = max_class_count - num_of_name
+        copies = np.random.randint(0,num_of_name,num_of_augmented_imgs)
+        xdf_dset = pd.concat([xdf_dset,xdf_dset[xdf_dset['target']==name].iloc[copies]],axis=0).reset_index(drop=True)
+
+    # Shuffle the Dataframe
+    xdf_dset = xdf_dset.sample(frac=1).reset_index(drop=True)
 
     ds_inputs = np.array(DATA_DIR + xdf_dset['id'])
     ds_targets = get_target(num_classes)
@@ -169,7 +201,7 @@ def read_train_data(num_classes):
     list_ds = tf.data.Dataset.from_tensor_slices((ds_inputs,ds_targets)) # creates a tensor from the image paths and targets
 
     final_ds = list_ds.map(process_path, num_parallel_calls=AUTOTUNE).batch(BATCH_SIZE)
-    
+
     return final_ds
 
 #------------------------------------------------------------------------------------------------------------------
@@ -221,7 +253,7 @@ def model_definition():
 
     model.add(tf.keras.layers.Dense(OUTPUTS_a, activation='softmax')) #final layer , outputs_a is the number of targets
 
-    model.compile(optimizer='RMSprop', loss='categorical_crossentropy', metrics=['accuracy'])
+    model.compile(optimizer=Adam(lr=LR), loss='categorical_crossentropy', metrics=['accuracy'])
 
     save_model(model) #print Summary
     return model
@@ -342,7 +374,7 @@ def metrics_func(metrics, aggregates=[]):
 #------------------------------------------------------------------------------------------------------------------
 
 def main():
-    global xdf_data, class_names, INPUTS_r, OUTPUTS_a, xdf_dset
+    global xdf_data, class_names, INPUTS_r, OUTPUTS_a, xdf_dset, train, seed
 
     ## Reading the excel file from a directory
     for file in os.listdir(PATH+ os.path.sep+ "excel"):
@@ -362,6 +394,7 @@ def main():
 
     ## Processing Train dataset
 
+    train = True
     xdf_dset = xdf_data[xdf_data["split"] == 'train'].copy()
 
     train_ds = read_train_data( OUTPUTS_a )
@@ -369,7 +402,7 @@ def main():
     train_func(train_ds)
 
     # Preprocessing Test dataset
-
+    train = False
     xdf_dset = xdf_data[xdf_data["split"] == SPLIT].copy()
 
     test_ds= read_data(OUTPUTS_a)
