@@ -27,12 +27,12 @@ weight_init = glorot_uniform(seed=SEED)
 rng = tf.random.Generator.from_seed(SEED, alg='philox')
 
 CHANNELS = 3
-IMAGE_SIZE = 100
+IMAGE_SIZE = 150
 
 ##  0, 1, 3
 ## Review documentation on tersorflow https://www.tensorflow.org/api_docs/python/tf/io/decode_jpeg
 
-parser = argparse.ArgumentParser()
+'''parser = argparse.ArgumentParser()
 parser.add_argument("--path", default=None, type=str, required=True)  # Path of file
 parser.add_argument("--split", default=False, type=str, required=True)  # validate, test, train
 
@@ -40,14 +40,14 @@ args = parser.parse_args()
 
 PATH = args.path
 DATA_DIR = args.path + os.path.sep + 'Data' + os.path.sep
-SPLIT = args.split
+SPLIT = args.split'''
 
 
-'''PATH = '/home/ubuntu/Exam1-v4'
+PATH = '/home/ubuntu/Exam1-v4'
 DATA_DIR = PATH + os.path.sep + 'Data' + os.path.sep
-SPLIT = "test"'''
+SPLIT = "test"
 
-n_epoch = 2
+n_epoch = 10
 BATCH_SIZE = 32
 LR = 0.1
 DROPOUT = 0.2
@@ -71,6 +71,7 @@ def process_target(target_type):
 
 
     class_names = np.sort(xdf_data['target'].unique())
+    #class_names = np.array(['class1', 'class2', 'class3', 'class4', 'class5', 'class6', 'class7', 'class8', 'class9', 'class10'])
 
     if target_type == 1:
 
@@ -124,7 +125,7 @@ def augment(image):
 
     image = tf.image.resize( image, [IMAGE_SIZE, IMAGE_SIZE])
     # Random crop back to the original size.
-    image = tf.image.stateless_random_crop(image, size=(int(IMAGE_SIZE*.8),int(IMAGE_SIZE*.8),CHANNELS), seed=img_seed)
+    image = tf.image.stateless_random_crop(image, size=(int(IMAGE_SIZE*.85),int(IMAGE_SIZE*.85),CHANNELS), seed=img_seed)
     # Random flip left right
     image = tf.image.stateless_random_flip_left_right(image, seed=img_seed)
     # Random saturation
@@ -268,28 +269,30 @@ def model_definition():
     model = tf.keras.Sequential()
 
     # Define the first dense layer
-    model.add(tf.keras.layers.Dense(300, activation='relu', input_shape=(INPUTS_r,)))
+    model.add(tf.keras.layers.Dense(300, activation='LeakyReLU', input_shape=(INPUTS_r,))) #relu
     #model.add(Dropout(DROPOUT, seed=SEED))
     model.add(BatchNormalization())
-    model.add(tf.keras.layers.Dense(200, activation='relu'))
+    model.add(tf.keras.layers.Dense(200, activation='LeakyReLU'))
     #model.add(Dropout(DROPOUT, seed=SEED))
     model.add(BatchNormalization())
-    model.add(tf.keras.layers.Dense(100, activation='relu'))
-    model.add(Dropout(DROPOUT, seed=SEED))
+    model.add(tf.keras.layers.Dense(100, activation='LeakyReLU'))
+    #model.add(Dropout(DROPOUT, seed=SEED))
     model.add(BatchNormalization())
-    model.add(tf.keras.layers.Dense(100, activation='relu'))
-    model.add(Dropout(DROPOUT, seed=SEED))
+    model.add(tf.keras.layers.Dense(100, activation='LeakyReLU'))
+    #model.add(Dropout(DROPOUT, seed=SEED))
     model.add(BatchNormalization())
-    model.add(tf.keras.layers.Dense(80, activation='relu'))
-    model.add(Dropout(DROPOUT, seed=SEED))
+    model.add(tf.keras.layers.Dense(80, activation='LeakyReLU'))
+    #model.add(Dropout(DROPOUT, seed=SEED))
     model.add(BatchNormalization())
-    model.add(tf.keras.layers.Dense(50, activation='relu'))
+    model.add(tf.keras.layers.Dense(50, activation='LeakyReLU'))
+    #model.add(Dropout(DROPOUT, seed=SEED))
+    model.add(BatchNormalization())
 
     model.add(tf.keras.layers.Dense(OUTPUTS_a, activation='softmax', kernel_initializer=weight_init)) #final layer , outputs_a is the number of targets
 
     model.compile(optimizer=Adam(lr=LR), loss='categorical_crossentropy', metrics=['accuracy'])
 
-    save_model(model) #print Summary
+    #save_model(model) #print Summary
     return model
 
 #------------------------------------------------------------------------------------------------------------------
@@ -329,14 +332,13 @@ def predict_func(test_ds):
     xres = [ tf.argmax(f).numpy() for f in res]
     xdf_dset['results'] = xres
 
-    save_model(final_model)
-
     ## write the rsults to a results_<nickname> xlsx
     ## the function will return a probability if using softmax
     ## The answers should be the the label not the probability
     ## for more information on activation functions and the results https://www.tensorflow.org/api_docs/python/tf/keras/activations
 
     xdf_dset.to_excel('results_{}.xlsx'.format(NICKNAME), index=False)
+
 #------------------------------------------------------------------------------------------------------------------
 
 def metrics_func(metrics, aggregates=[]):
