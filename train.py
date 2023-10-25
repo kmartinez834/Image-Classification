@@ -5,59 +5,64 @@ import pandas as pd
 import tensorflow as tf
 import argparse
 import random
+import matplotlib.pyplot as plt
 from sklearn.metrics import f1_score, cohen_kappa_score, accuracy_score, matthews_corrcoef
 from tensorflow.keras.utils import to_categorical
 from tensorflow.keras import layers
-from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.optimizers import Adam, RMSprop, SGD
 from tensorflow.keras.initializers import glorot_uniform
-from tensorflow.keras.layers import Dense, Dropout, BatchNormalization, Activation
+from tensorflow.keras.layers import Dense, Dropout, BatchNormalization, Activation, RandomFlip
 from sklearn.utils.class_weight import compute_class_weight
+from keras import layers
+import keras
+import random
+
 #------------------------------------------------------------------------------------------------------------------
 
 '''
- LAST UPDATE 10/20/21
- 02/14/2022 LSDR CHECK CONSISTENCY
+LAST UPDATE 10/20/2021 LSDR
+last update 10/21/2021 lsdr
+02/14/2022 am LSDR CHECK CONSISTENCY
+02/14/2022 pm LSDR Change result for results
+
 '''
 #------------------------------------------------------------------------------------------------------------------
+
+# Set seed and init
 SEED = 123
-random.seed(SEED)
-np.random.seed(SEED)
-tf.random.set_seed(SEED)
 weight_init = glorot_uniform(seed=SEED)
 rng = tf.random.Generator.from_seed(SEED, alg='philox')
-
-CHANNELS = 3
-IMAGE_SIZE = 150
-
-##  0, 1, 3
-## Review documentation on tersorflow https://www.tensorflow.org/api_docs/python/tf/io/decode_jpeg
-
-'''parser = argparse.ArgumentParser()
-parser.add_argument("--path", default=None, type=str, required=True)  # Path of file
-parser.add_argument("--split", default=False, type=str, required=True)  # validate, test, train
-
-args = parser.parse_args()
-
-PATH = args.path
-DATA_DIR = args.path + os.path.sep + 'Data' + os.path.sep
-SPLIT = args.split'''
-
-
-PATH = '/home/ubuntu/Exam1-v4'
-DATA_DIR = PATH + os.path.sep + 'Data' + os.path.sep
-SPLIT = "test"
-
-n_epoch = 10
-BATCH_SIZE = 32
-LR = 0.1
-DROPOUT = 0.2
+random.seed(SEED)
 
 ## Process images in parallel
 AUTOTUNE = tf.data.AUTOTUNE
 
+## folder "Data" images
+## folder "excel" excel file , whatever is there is the file
+## get the classes from the excel file
+## folder "Documents" readme file
+
+OR_PATH = os.getcwd()
+os.chdir("..") # Change to the parent directory
+PATH = os.getcwd()
+DATA_DIR = os.getcwd() + os.path.sep + 'Data' + os.path.sep
+sep = os.path.sep
+os.chdir(OR_PATH) # Come back to the folder where the code resides , all files will be left on this directory
+
+n_epoch = 1
+BATCH_SIZE = 32
+LR = 0.01
+'''LR = keras.optimizers.schedules.ExponentialDecay(
+    initial_learning_rate=0.1,
+    decay_steps=10000,
+    decay_rate=0.9)'''
+DROPOUT = 0.5
+
+## Image processing
+CHANNELS = 3
+IMAGE_SIZE = 150
+
 NICKNAME = 'Jeanne'
-
-
 #------------------------------------------------------------------------------------------------------------------
 
 def process_target(target_type):
@@ -71,7 +76,6 @@ def process_target(target_type):
 
 
     class_names = np.sort(xdf_data['target'].unique())
-    #class_names = np.array(['class1', 'class2', 'class3', 'class4', 'class5', 'class6', 'class7', 'class8', 'class9', 'class10'])
 
     if target_type == 1:
 
@@ -116,52 +120,83 @@ def process_target(target_type):
 
 #------------------------------------------------------------------------------------------------------------------
 
-def augment(image):
+def data_augmentation(image):
 
     #g = tf.random.Generator.from_non_deterministic_state()
     # Make a new seed.
     #img_seed = tf.random.split(seed, num=1)[0, :]
     img_seed = rng.make_seeds(2)[0]
-
-    image = tf.image.resize( image, [IMAGE_SIZE, IMAGE_SIZE])
-    # Random crop back to the original size.
-    image = tf.image.stateless_random_crop(image, size=(int(IMAGE_SIZE*.85),int(IMAGE_SIZE*.85),CHANNELS), seed=img_seed)
+    
+    image = tf.image.resize( image, [IMAGE_SIZE, IMAGE_SIZE])    
+    # Random crop
+    crop_size = int(np.random.randint(IMAGE_SIZE*.6,IMAGE_SIZE))    
+    image = tf.image.stateless_random_crop(image, size=(crop_size,crop_size,CHANNELS), seed=img_seed)
     # Random flip left right
     image = tf.image.stateless_random_flip_left_right(image, seed=img_seed)
     # Random saturation
-    image = tf.image.stateless_random_saturation(image, 0.1, 4.0, seed=img_seed)
-    # Random flip up down
-    #image = tf.image.stateless_random_flip_up_down(image, seed=img_seed)
+    #image = tf.image.stateless_random_saturation(image, 0.5, 4.0, seed=img_seed)
+    # Random contrast
+    #image = tf.image.stateless_random_contrast(image, 0.5, 5, seed=img_seed)
+    # Random brightness
+    #image = tf.image.stateless_random_brightness(image, 0.5, seed=img_seed)
+    # Return to IMAGE_SIZE
+    
+    
     return image
 
 #------------------------------------------------------------------------------------------------------------------
 
+def data_augmentation_grayscale(image):
+
+    #g = tf.random.Generator.from_non_deterministic_state()
+    # Make a new seed.
+    #img_seed = tf.random.split(seed, num=1)[0, :]
+    img_seed = rng.make_seeds(2)[0]
+    
+    image = tf.image.resize( image, [IMAGE_SIZE, IMAGE_SIZE])    
+    # Random crop
+    crop_size = int(np.random.randint(IMAGE_SIZE*.6,IMAGE_SIZE))    
+    image = tf.image.stateless_random_crop(image, size=(crop_size,crop_size,CHANNELS), seed=img_seed)
+    # Random flip left right
+    image = tf.image.stateless_random_flip_left_right(image, seed=img_seed)
+    # Grayscale
+    image = tf.image.rgb_to_grayscale(image)    
+    
+    return image
+
+#------------------------------------------------------------------------------------------------------------------
+
+def resize_and_rescale(image):
+
+    pipeline = tf.keras.Sequential([
+        layers.Resizing(IMAGE_SIZE,IMAGE_SIZE),
+        layers.Rescaling(scale=1./255)
+        ])
+    
+    return pipeline(image)
+
+#------------------------------------------------------------------------------------------------------------------
+
 def process_path(feature, target):
+
     '''
-             feature is the path and id of the image
-             target is the result
-             returns the image and the target as label
+        feature is the path and id of the image
+        target is the result
+        returns the image and the target as label
     '''
 
     label = target
-
-    # Processing feature
-
-    # load the raw data from the file as a string
     file_path = feature
 
-   ## REad the image from disk
     img = tf.io.read_file(file_path)
     img = tf.io.decode_image(img, channels=CHANNELS, expand_animations=False)
 
-    ## Randomly augment images
     if train == True:
-        img = augment(img)
+        img = data_augmentation(img)
+        #img = data_augmentation_grayscale(img)
 
-    ## Resize the image
-    #img = tf.image.resize_with_crop_or_pad( img, 300, 300)
-    img = tf.image.resize( img, [IMAGE_SIZE, IMAGE_SIZE])
-
+    img = resize_and_rescale(img)
+    
     #plt.imshow(np.array(img, dtype=int))
     #plt.show()
 
@@ -169,8 +204,8 @@ def process_path(feature, target):
     img = tf.reshape(img, [-1])
 
     return img, label
-#------------------------------------------------------------------------------------------------------------------
 
+#------------------------------------------------------------------------------------------------------------------
 
 def get_target(num_classes):
     '''
@@ -192,17 +227,15 @@ def get_target(num_classes):
 
 #------------------------------------------------------------------------------------------------------------------
 
-def read_train_data(num_classes):
-    ## Only the training set
-    ## xdf_dset ( data set )
-    ## read the data data from the file
+def img_generation():
 
     global xdf_dset
 
-    # Drop random sample of class5 rows
+# Drop random sample of class5 rows
     #drop_rows = xdf_dset[xdf_dset['target']=='class5'].sample(frac=0.5, random_state=SEED).index
     #xdf_dset = xdf_dset.drop(drop_rows)
 
+    # Add additional images to underrepresented classes
     max_class_count = (xdf_dset['target'].value_counts()).iloc[0]
     for name in class_names:
         num_of_name = (xdf_dset['target']==name).sum()
@@ -211,53 +244,32 @@ def read_train_data(num_classes):
         xdf_dset = pd.concat([xdf_dset,xdf_dset[xdf_dset['target']==name].iloc[copies]],axis=0).reset_index(drop=True)
 
     # Shuffle the Dataframe
-    xdf_dset = xdf_dset.sample(frac=1).reset_index(drop=True)
+    xdf_dset = xdf_dset.sample(frac=1, random_state=SEED).reset_index(drop=True)
 
-    ds_inputs = np.array(DATA_DIR + xdf_dset['id'])
-    ds_targets = get_target(num_classes)
-
-    ## Make the channel as a list to make it variable
-    ## Create the data set and call the function map to create the dataloader using
-    ## tf.data.Dataset
-    ## dataset.map
-    ## map creates an iterable
-    ## More information on https://www.tensorflow.org/tutorials/images/classification
-
-    list_ds = tf.data.Dataset.from_tensor_slices((ds_inputs,ds_targets)) # creates a tensor from the image paths and targets
-
-    final_ds = list_ds.map(process_path, num_parallel_calls=AUTOTUNE).batch(BATCH_SIZE)
-
-    return final_ds
+    return xdf_dset
 
 #------------------------------------------------------------------------------------------------------------------
 
 def read_data(num_classes):
-    ## Only the training set
-    ## xdf_dset ( data set )
-    ## read the data data from the file
+    '''
+          reads the dataset and process the target
+    '''
 
     ds_inputs = np.array(DATA_DIR + xdf_dset['id'])
     ds_targets = get_target(num_classes)
 
-    ## Make the channel as a list to make it variable
-    ## Create the data set and call the function map to create the dataloader using
-    ## tf.data.Dataset
-    ## dataset.map
-    ## map creates an iterable
-    ## More information on https://www.tensorflow.org/tutorials/images/classification
-
     list_ds = tf.data.Dataset.from_tensor_slices((ds_inputs,ds_targets)) # creates a tensor from the image paths and targets
 
     final_ds = list_ds.map(process_path, num_parallel_calls=AUTOTUNE).batch(BATCH_SIZE)
-    
+
     return final_ds
+
 #------------------------------------------------------------------------------------------------------------------
 
 def save_model(model):
     '''
          receives the model and print the summary into a .txt file
     '''
-
     with open('summary_{}.txt'.format(NICKNAME), 'w') as fh:
         # Pass the file handle in as a lambda function to make it callable
         model.summary(print_fn=lambda x: fh.write(x + '\n'))
@@ -265,38 +277,85 @@ def save_model(model):
 #------------------------------------------------------------------------------------------------------------------
 
 def model_definition():
+
+    # Block 1
+    inputs = keras.Input(shape=(INPUTS_r), name="img")
+    x = layers.Dense(256, activation="relu")(inputs)
+    x = layers.Dropout(DROPOUT, seed=SEED)(x)
+    x = BatchNormalization()(x)
+    x = layers.Dense(128, activation="relu")(x)
+    x = layers.Dropout(DROPOUT, seed=SEED)(x)
+    block1_output = BatchNormalization()(x)
+    
+    # Block 2
+    x = layers.Dense(128, activation="relu")(block1_output)
+    x = layers.Dropout(DROPOUT, seed=SEED)(x)
+    x = BatchNormalization()(x)
+    x = layers.Dense(128, activation="relu")(x)
+    x = layers.Dropout(DROPOUT, seed=SEED)(x)
+    x = BatchNormalization()(x)
+    block2_output = layers.add([x, block1_output])
+
+    # Block 3
+    x = layers.Dense(128, activation="relu")(block2_output)
+    x = layers.Dropout(DROPOUT, seed=SEED)(x)
+    x = BatchNormalization()(x)
+    x = layers.Dense(128, activation="relu")(x)
+    x = layers.Dropout(DROPOUT, seed=SEED)(x)
+    x = BatchNormalization()(x)
+    block3_output = layers.add([x, block2_output])
+
+    x = layers.Dense(64, activation="relu")(block3_output)
+    x = layers.Dropout(DROPOUT, seed=SEED)(x)
+    x = BatchNormalization()(x)
+    x = layers.Dense(64, activation="relu")(x)
+    x = layers.Dropout(DROPOUT, seed=SEED)(x)
+    x = BatchNormalization()(x)
+    outputs = layers.Dense(OUTPUTS_a, activation='softmax')(x)
+
+    model = keras.Model(inputs, outputs)
+
+    model.compile(optimizer=SGD(learning_rate=LR, momentum=0.5, decay=0.01), loss='categorical_crossentropy', metrics=[tf.keras.metrics.F1Score(average='macro'),'accuracy'])
+
+    save_model(model) #print Summary
+    return model
+
+#------------------------------------------------------------------------------------------------------------------
+
+'''def model_definition():
     # Define a Keras sequential model
     model = tf.keras.Sequential()
 
     # Define the first dense layer
-    model.add(tf.keras.layers.Dense(300, activation='LeakyReLU', input_shape=(INPUTS_r,))) #relu
+    model.add(tf.keras.layers.Dense(300, activation='relu', input_shape=(INPUTS_r,)))
     #model.add(Dropout(DROPOUT, seed=SEED))
-    model.add(BatchNormalization())
-    model.add(tf.keras.layers.Dense(200, activation='LeakyReLU'))
+    #model.add(BatchNormalization())
+    model.add(tf.keras.layers.Dense(200, activation='relu'))
     #model.add(Dropout(DROPOUT, seed=SEED))
-    model.add(BatchNormalization())
-    model.add(tf.keras.layers.Dense(100, activation='LeakyReLU'))
+    #model.add(BatchNormalization())
+    model.add(tf.keras.layers.Dense(100, activation='relu'))
     #model.add(Dropout(DROPOUT, seed=SEED))
-    model.add(BatchNormalization())
-    model.add(tf.keras.layers.Dense(100, activation='LeakyReLU'))
+    #model.add(BatchNormalization())
+    #model.add(tf.keras.layers.Dense(100, activation='relu'))
     #model.add(Dropout(DROPOUT, seed=SEED))
-    model.add(BatchNormalization())
-    model.add(tf.keras.layers.Dense(80, activation='LeakyReLU'))
+    #model.add(BatchNormalization())
+    #model.add(tf.keras.layers.Dense(80, activation='relu'))
     #model.add(Dropout(DROPOUT, seed=SEED))
-    model.add(BatchNormalization())
-    model.add(tf.keras.layers.Dense(50, activation='LeakyReLU'))
+    #model.add(BatchNormalization())
+    #model.add(tf.keras.layers.Dense(50, activation='relu'))
     #model.add(Dropout(DROPOUT, seed=SEED))
-    model.add(BatchNormalization())
-
+    #model.add(BatchNormalization())
     model.add(tf.keras.layers.Dense(OUTPUTS_a, activation='softmax', kernel_initializer=weight_init)) #final layer , outputs_a is the number of targets
 
-    model.compile(optimizer=Adam(lr=LR), loss='categorical_crossentropy', metrics=['accuracy'])
+    model.compile(optimizer='SGD', loss='categorical_crossentropy', metrics=[tf.keras.metrics.F1Score(average='macro'),'accuracy'])
+    #model.compile(optimizer=RMSprop(learning_rate=LR, momentum=0.9), loss='categorical_crossentropy', metrics=[tf.keras.metrics.F1Score(average='macro'),'accuracy'])
+
 
     #save_model(model) #print Summary
-    return model
-
+    return model'''
 #------------------------------------------------------------------------------------------------------------------
-# https://stackoverflow.com/questions/41648129/balancing-an-imbalanced-dataset-with-keras-image-generator
+
+#https://stackoverflow.com/questions/41648129/balancing-an-imbalanced-dataset-with-keras-image-generator
 def balance_model(class_names):
 
     unique_classes = class_names
@@ -310,34 +369,30 @@ def balance_model(class_names):
 
 #------------------------------------------------------------------------------------------------------------------
 
-def train_func(train_ds):
-    '''
-        train the model
-    '''
+def train_func(train_ds, test_ds):
+   
+    #train the model
 
-    early_stop = tf.keras.callbacks.EarlyStopping(monitor='accuracy', patience =100)
-    check_point = tf.keras.callbacks.ModelCheckpoint('model_{}.h5'.format(NICKNAME), monitor='accuracy', save_best_only=True)
+    #early_stop = tf.keras.callbacks.EarlyStopping(monitor='loss', patience =100)
+    check_point = tf.keras.callbacks.ModelCheckpoint('model_{}.h5'.format(NICKNAME), monitor='val_accuracy', save_best_only=True)
     final_model = model_definition()
 
-    final_model.fit(train_ds,  epochs=n_epoch, callbacks=[early_stop, check_point])
-    #final_model.fit(train_ds,  epochs=n_epoch, callbacks=[check_point])
+    #final_model.fit(train_ds,  epochs=n_epoch, callbacks=[early_stop, check_point])
+    final_model.fit(train_ds,  validation_data=test_ds, epochs=n_epoch, callbacks=[check_point])
     #final_model.fit(train_ds,  epochs=n_epoch, callbacks=[check_point], class_weight=train_class_weights)
 
 #------------------------------------------------------------------------------------------------------------------
 
 def predict_func(test_ds):
+    '''
+        predict fumction
+    '''
 
     final_model = tf.keras.models.load_model('model_{}.h5'.format(NICKNAME))
     res = final_model.predict(test_ds)
     xres = [ tf.argmax(f).numpy() for f in res]
     xdf_dset['results'] = xres
-
-    ## write the rsults to a results_<nickname> xlsx
-    ## the function will return a probability if using softmax
-    ## The answers should be the the label not the probability
-    ## for more information on activation functions and the results https://www.tensorflow.org/api_docs/python/tf/keras/activations
-
-    xdf_dset.to_excel('results_{}.xlsx'.format(NICKNAME), index=False)
+    #xdf_dset.to_excel('results_{}.xlsx'.format(NICKNAME), index=False)
 
 #------------------------------------------------------------------------------------------------------------------
 
@@ -440,46 +495,49 @@ def metrics_func(metrics, aggregates=[]):
 def main():
     global xdf_data, class_names, INPUTS_r, OUTPUTS_a, xdf_dset, train
 
-    ## Reading the excel file from a directory
-    for file in os.listdir(PATH+ os.path.sep+ "excel"):
+    for file in os.listdir(PATH+os.path.sep + "excel"):
         if file[-5:] == '.xlsx':
-            FILE_NAME = PATH+os.path.sep + "excel" + os.path.sep + file
+            FILE_NAME = PATH + os.path.sep + "excel" + os.path.sep + file
 
     # Reading and filtering Excel file
-
     xdf_data = pd.read_excel(FILE_NAME)
 
-    ## Multiclass , verify the classes , change from strings to numbers
-
-    class_names = process_target(1)
+    class_names= process_target(1)  # 1: Multiclass 2: Multilabel 3:Binary
 
     INPUTS_r = IMAGE_SIZE * IMAGE_SIZE * CHANNELS
     OUTPUTS_a = len(class_names)
 
     ## Processing Train dataset
 
-    train = True
     #train_class_weights = balance_model(class_names)
 
+    train = True
     xdf_dset = xdf_data[xdf_data["split"] == 'train'].copy()
 
-    train_ds = read_train_data( OUTPUTS_a )
+    xdf_dset = img_generation()
 
-    train_func(train_ds)
+    train_ds = read_data( OUTPUTS_a)
 
     # Preprocessing Test dataset
+
     train = False
-    xdf_dset = xdf_data[xdf_data["split"] == SPLIT].copy()
+    xdf_dset = xdf_data[xdf_data["split"] == 'test'].copy()
 
     test_ds= read_data(OUTPUTS_a)
 
+    # Train the model & run on test set
+    train_func(train_ds, test_ds)
     predict_func(test_ds)
 
     ## Metrics Function over the result of the test dataset
     list_of_metrics = ['f1_macro','acc','coh']
-    list_of_agg = ['avg','sum']
+    list_of_agg = ['avg']
     metrics_func(list_of_metrics, list_of_agg)
+# ------------------------------------------------------------------------------------------------------------------
+
 
 if __name__ == "__main__":
 
     main()
+#------------------------------------------------------------------------------------------------------------------
+
