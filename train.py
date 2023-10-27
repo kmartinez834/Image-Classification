@@ -50,7 +50,7 @@ DATA_DIR = os.getcwd() + os.path.sep + 'Data' + os.path.sep
 sep = os.path.sep
 os.chdir(OR_PATH) # Come back to the folder where the code resides , all files will be left on this directory
 
-n_epoch = 10
+n_epoch = 100
 BATCH_SIZE = 128 #https://medium.com/geekculture/how-does-batch-size-impact-your-model-learning-2dd34d9fb1fa
 LR = 0.04
 '''LR = keras.optimizers.schedules.ExponentialDecay(
@@ -144,7 +144,7 @@ def data_augmentation(image):
     # Random brightness
     image = tf.image.random_brightness(image, 0.5)#, seed=img_seed)
     # Grayscale
-    image = tf.image.rgb_to_grayscale(image)
+    #image = tf.image.rgb_to_grayscale(image)
     
     
     return image
@@ -262,9 +262,9 @@ def save_model(model):
 
 #------------------------------------------------------------------------------------------------------------------
 
-def leaky_relu_model(inputs):
+'''def leaky_relu_model(inputs):
 
-    #inputs = keras.Input(shape=(INPUTS_r))
+    inputs = keras.Input(shape=(INPUTS_r))
     x = layers.Dense(300, activation="LeakyReLU")(inputs)
     x = BatchNormalization()(x)
     x = layers.Dense(200, activation="LeakyReLU")(x)
@@ -278,7 +278,7 @@ def leaky_relu_model(inputs):
     x = layers.Dense(50, activation="LeakyReLU")(x)
     x = BatchNormalization()(x)
 
-    return x
+    return x'''
 
 #------------------------------------------------------------------------------------------------------------------
 
@@ -292,39 +292,29 @@ def model_definition():
 
     # Block 1
     inputs = keras.Input(shape=(INPUTS_r))
-    x = layers.Dense(300, activation="relu")(inputs)
-    x = layers.Dropout(DROPOUT, seed=SEED)(x)
+    x = layers.Dense(300, activation="LeakyReLU")(inputs)
     x = BatchNormalization()(x)
-    x = layers.Dense(200, activation="relu")(x)
-    x = layers.Dropout(DROPOUT, seed=SEED)(x)
+    x = layers.Dense(200, activation="LeakyReLU")(x)
     x = BatchNormalization()(x)
-    x = layers.Dense(100, activation="relu")(x)
-    x = layers.Dropout(DROPOUT, seed=SEED)(x)
-    x = BatchNormalization()(x)
-    x = layers.Dense(100, activation="relu")(x)
-    x = layers.Dropout(DROPOUT, seed=SEED)(x)
-    x = BatchNormalization()(x)
-    x = layers.Dense(50, activation="relu")(x)
-    x = layers.Dropout(DROPOUT, seed=SEED)(x)
+    x = layers.Dense(100, activation="LeakyReLU")(x)
     block1_output = BatchNormalization()(x)
-
-    # Leaky relu
-    leaky_relu= leaky_relu_model(inputs)
-    output_block = layers.add([block1_output, leaky_relu])
-
-    # Output block
-    x = layers.Dense(50, activation="relu")(output_block)
-    x = layers.Dropout(DROPOUT, seed=SEED)(x)
+    
+    # Block 2
+    x = layers.Dense(100, activation="LeakyReLU")(block1_output)
     x = BatchNormalization()(x)
-    x = layers.Dense(50, activation="relu")(x)
-    x = layers.Dropout(DROPOUT, seed=SEED)(x)
+    x = layers.Dense(100, activation="LeakyReLU")(x)
     x = BatchNormalization()(x)
-    x = layers.Dense(50, activation="relu")(x)
-    x = layers.Dropout(DROPOUT, seed=SEED)(x)
+    block2_output = layers.add([block1_output, x])
+
+    # Output Block
+    x = layers.Dense(80, activation="LeakyReLU")(block2_output)
+    x = BatchNormalization()(x)
+    x = layers.Dense(50, activation="LeakyReLU")(x)
     x = BatchNormalization()(x)
     outputs = layers.Dense(OUTPUTS_a, activation='softmax')(x)
 
     model = keras.Model(inputs, outputs)
+    model.summary()
 
     model.compile(optimizer=Adam(learning_rate=LR), loss='categorical_crossentropy', metrics=[tf.keras.metrics.F1Score(average='macro'),'accuracy'])
     #model.compile(optimizer=SGD(learning_rate=LR, momentum=0.9, weight_decay=0.01), loss='categorical_crossentropy', metrics=[tf.keras.metrics.F1Score(average='macro'),'accuracy'])
@@ -357,7 +347,7 @@ def train_func(train_ds, test_ds):
     final_model = model_definition()
 
     #final_model.fit(train_ds,  epochs=n_epoch, callbacks=[early_stop, check_point])
-    final_model.fit(train_ds,  validation_data=test_ds, epochs=n_epoch, callbacks=[check_point])
+    final_model.fit(train_ds, validation_data=test_ds, epochs=n_epoch, callbacks=[check_point])
     #final_model.fit(train_ds,  epochs=n_epoch, callbacks=[check_point], class_weight=train_class_weights)
 
 #------------------------------------------------------------------------------------------------------------------
