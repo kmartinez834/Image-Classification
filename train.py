@@ -30,7 +30,7 @@ last update 10/21/2021 lsdr
 #------------------------------------------------------------------------------------------------------------------
 
 # Set seed and init
-SEED = 98
+SEED = 123
 weight_init = glorot_uniform(seed=SEED)
 rng = tf.random.Generator.from_seed(SEED, alg='philox')
 #random.seed(SEED)
@@ -50,17 +50,17 @@ DATA_DIR = os.getcwd() + os.path.sep + 'Data' + os.path.sep
 sep = os.path.sep
 os.chdir(OR_PATH) # Come back to the folder where the code resides , all files will be left on this directory
 
-n_epoch = 100
+n_epoch = 5
 BATCH_SIZE = 128 #https://medium.com/geekculture/how-does-batch-size-impact-your-model-learning-2dd34d9fb1fa
 LR = 0.04
 '''LR = keras.optimizers.schedules.ExponentialDecay(
     initial_learning_rate=0.1,
     decay_steps=10000,
     decay_rate=0.9)'''
-DROPOUT = 0.3
+DROPOUT = 0.2
 
 ## Image processing
-CHANNELS = 3
+CHANNELS = 1
 IMAGE_SIZE = 200
 
 NICKNAME = 'Jeanne'
@@ -128,7 +128,7 @@ def data_augmentation(image):
     #img_seed = tf.random.split(seed, num=1)[0, :]
     #img_seed = rng.make_seeds(2)[0]
     
-    # Central crop
+        # Central crop
     image = tf.image.central_crop(image, 0.8)    
     # Random crop
     image = tf.image.resize( image, [IMAGE_SIZE, IMAGE_SIZE])
@@ -138,14 +138,12 @@ def data_augmentation(image):
     # Random flip left right
     image = tf.image.random_flip_left_right(image)#, seed=img_seed)
     # Random saturation
-    image = tf.image.random_saturation(image, 0.5, 2.0)#, seed=img_seed)
+    #image = tf.image.random_saturation(image, 0.5, 2.0)#, seed=img_seed)
     # Random contrast
     image = tf.image.random_contrast(image, 0.5, 2.0)#, seed=img_seed)
     # Random brightness
     image = tf.image.random_brightness(image, 0.5)#, seed=img_seed)
-    # Grayscale
-    #image = tf.image.rgb_to_grayscale(image)
-    
+        
     
     return image
 
@@ -174,7 +172,10 @@ def process_path(feature, target):
     file_path = feature
 
     img = tf.io.read_file(file_path)
-    img = tf.io.decode_image(img, channels=CHANNELS, expand_animations=False)
+    img = tf.io.decode_image(img, channels=3, expand_animations=False)
+
+    # Grayscale
+    img = tf.image.rgb_to_grayscale(img)
 
     if train == True:
         img = data_augmentation(img)
@@ -246,7 +247,7 @@ def read_data(num_classes):
     list_ds = tf.data.Dataset.from_tensor_slices((ds_inputs,ds_targets)) # creates a tensor from the image paths and targets
 
     final_ds = list_ds.map(process_path, num_parallel_calls=AUTOTUNE).batch(BATCH_SIZE)
-
+    
     return final_ds
 
 #------------------------------------------------------------------------------------------------------------------
@@ -292,29 +293,45 @@ def model_definition():
 
     # Block 1
     inputs = keras.Input(shape=(INPUTS_r))
-    x = layers.Dense(300, activation="LeakyReLU")(inputs)
+    x = layers.GaussianNoise(0.1)(inputs)
+    x = layers.Dense(300, activation="LeakyReLU")(x)
+    #x = layers.Dense(300, activation="LeakyReLU")(inputs)
     x = BatchNormalization()(x)
     x = layers.Dense(200, activation="LeakyReLU")(x)
     x = BatchNormalization()(x)
     x = layers.Dense(100, activation="LeakyReLU")(x)
+    x = BatchNormalization()(x)
     block1_output = BatchNormalization()(x)
     
     # Block 2
-    x = layers.Dense(100, activation="LeakyReLU")(block1_output)
+    x = layers.Dense(200, activation="LeakyReLU")(block1_output)
     x = BatchNormalization()(x)
     x = layers.Dense(100, activation="LeakyReLU")(x)
     x = BatchNormalization()(x)
     block2_output = layers.add([block1_output, x])
 
+    # Block 3
+    x = layers.Dense(200, activation="LeakyReLU")(block2_output)
+    x = BatchNormalization()(x)
+    x = layers.Dense(100, activation="LeakyReLU")(x)
+    x = BatchNormalization()(x)
+    block3_output = layers.add([block2_output, x])
+
+    # Block 4
+    x = layers.Dense(200, activation="LeakyReLU")(block3_output)
+    x = BatchNormalization()(x)
+    x = layers.Dense(100, activation="LeakyReLU")(x)
+    x = BatchNormalization()(x)
+    block4_output = layers.add([block3_output, x])
+
     # Output Block
-    x = layers.Dense(80, activation="LeakyReLU")(block2_output)
+    x = layers.Dense(80, activation="LeakyReLU")(block4_output)
     x = BatchNormalization()(x)
     x = layers.Dense(50, activation="LeakyReLU")(x)
     x = BatchNormalization()(x)
     outputs = layers.Dense(OUTPUTS_a, activation='softmax')(x)
 
     model = keras.Model(inputs, outputs)
-    model.summary()
 
     model.compile(optimizer=Adam(learning_rate=LR), loss='categorical_crossentropy', metrics=[tf.keras.metrics.F1Score(average='macro'),'accuracy'])
     #model.compile(optimizer=SGD(learning_rate=LR, momentum=0.9, weight_decay=0.01), loss='categorical_crossentropy', metrics=[tf.keras.metrics.F1Score(average='macro'),'accuracy'])
