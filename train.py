@@ -9,10 +9,10 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import f1_score, cohen_kappa_score, accuracy_score, matthews_corrcoef
 from tensorflow.keras.utils import to_categorical
 from tensorflow.keras import layers
-from tensorflow.keras.optimizers import Adam, RMSprop
+from tensorflow.keras.optimizers import Adam, RMSprop, AdamW
 from tensorflow.keras.optimizers.experimental import SGD
 from tensorflow.keras.initializers import glorot_uniform
-from tensorflow.keras.layers import Dense, Dropout, BatchNormalization, Activation, RandomFlip
+from tensorflow.keras.layers import Dense, Dropout, BatchNormalization, Activation, RandomFlip, LeakyReLU
 from sklearn.utils.class_weight import compute_class_weight
 from keras import layers
 import keras
@@ -50,17 +50,19 @@ DATA_DIR = os.getcwd() + os.path.sep + 'Data' + os.path.sep
 sep = os.path.sep
 os.chdir(OR_PATH) # Come back to the folder where the code resides , all files will be left on this directory
 
-n_epoch = 5
-BATCH_SIZE = 128 #https://medium.com/geekculture/how-does-batch-size-impact-your-model-learning-2dd34d9fb1fa
-LR = 0.04
+n_epoch = 200
+BATCH_SIZE = 32 #https://medium.com/geekculture/how-does-batch-size-impact-your-model-learning-2dd34d9fb1fa
+LR = 0.001
 '''LR = keras.optimizers.schedules.ExponentialDecay(
     initial_learning_rate=0.1,
     decay_steps=10000,
     decay_rate=0.9)'''
-DROPOUT = 0.2
+DROPOUT = 0.3
+ALPHA = 0.3
+WEIGHT_DECAY=0.3
 
 ## Image processing
-CHANNELS = 1
+CHANNELS = 3
 IMAGE_SIZE = 200
 
 NICKNAME = 'Jeanne'
@@ -128,8 +130,7 @@ def data_augmentation(image):
     #img_seed = tf.random.split(seed, num=1)[0, :]
     #img_seed = rng.make_seeds(2)[0]
     
-        # Central crop
-    image = tf.image.central_crop(image, 0.8)    
+    
     # Random crop
     image = tf.image.resize( image, [IMAGE_SIZE, IMAGE_SIZE])
     crop_size = int(np.random.randint(IMAGE_SIZE*.7,IMAGE_SIZE))
@@ -138,7 +139,7 @@ def data_augmentation(image):
     # Random flip left right
     image = tf.image.random_flip_left_right(image)#, seed=img_seed)
     # Random saturation
-    #image = tf.image.random_saturation(image, 0.5, 2.0)#, seed=img_seed)
+    image = tf.image.random_saturation(image, 0.5, 2.0)#, seed=img_seed)
     # Random contrast
     image = tf.image.random_contrast(image, 0.5, 2.0)#, seed=img_seed)
     # Random brightness
@@ -172,10 +173,13 @@ def process_path(feature, target):
     file_path = feature
 
     img = tf.io.read_file(file_path)
-    img = tf.io.decode_image(img, channels=3, expand_animations=False)
+    img = tf.io.decode_image(img, channels=CHANNELS, expand_animations=False)
 
     # Grayscale
-    img = tf.image.rgb_to_grayscale(img)
+    #img = tf.image.rgb_to_grayscale(img)
+
+    # Central crop
+    img = tf.image.central_crop(img, 0.8)
 
     if train == True:
         img = data_augmentation(img)
@@ -218,8 +222,8 @@ def img_generation():
     global xdf_dset
 
 # Drop random sample of class5 rows
-    #drop_rows = xdf_dset[xdf_dset['target']=='class5'].sample(frac=0.5, random_state=SEED).index
-    #xdf_dset = xdf_dset.drop(drop_rows)
+    drop_rows = xdf_dset[xdf_dset['target']=='class5'].sample(frac=0.5, random_state=SEED).index
+    xdf_dset = xdf_dset.drop(drop_rows)
 
     # Add additional images to underrepresented classes
     max_class_count = (xdf_dset['target'].value_counts()).iloc[0]
@@ -293,47 +297,38 @@ def model_definition():
 
     # Block 1
     inputs = keras.Input(shape=(INPUTS_r))
-    x = layers.GaussianNoise(0.1)(inputs)
-    x = layers.Dense(300, activation="LeakyReLU")(x)
-    #x = layers.Dense(300, activation="LeakyReLU")(inputs)
+    x = layers.GaussianNoise(0.2)(inputs)
+    x = layers.Dense(300, activation=LeakyReLU(alpha=ALPHA))(x)
     x = BatchNormalization()(x)
-    x = layers.Dense(200, activation="LeakyReLU")(x)
+    x = layers.Dense(200, activation=LeakyReLU(alpha=ALPHA))(x)
     x = BatchNormalization()(x)
-    x = layers.Dense(100, activation="LeakyReLU")(x)
-    x = BatchNormalization()(x)
+    x = layers.Dense(100, activation=LeakyReLU(alpha=ALPHA))(x)
     block1_output = BatchNormalization()(x)
     
     # Block 2
-    x = layers.Dense(200, activation="LeakyReLU")(block1_output)
+    x = layers.Dense(100, activation=LeakyReLU(alpha=ALPHA))(block1_output)
     x = BatchNormalization()(x)
-    x = layers.Dense(100, activation="LeakyReLU")(x)
+    x = layers.Dense(100, activation=LeakyReLU(alpha=ALPHA))(x)
     x = BatchNormalization()(x)
     block2_output = layers.add([block1_output, x])
 
     # Block 3
-    x = layers.Dense(200, activation="LeakyReLU")(block2_output)
+    x = layers.Dense(100, activation=LeakyReLU(alpha=ALPHA))(block2_output)
     x = BatchNormalization()(x)
-    x = layers.Dense(100, activation="LeakyReLU")(x)
+    x = layers.Dense(100, activation=LeakyReLU(alpha=ALPHA))(x)
     x = BatchNormalization()(x)
     block3_output = layers.add([block2_output, x])
 
-    # Block 4
-    x = layers.Dense(200, activation="LeakyReLU")(block3_output)
-    x = BatchNormalization()(x)
-    x = layers.Dense(100, activation="LeakyReLU")(x)
-    x = BatchNormalization()(x)
-    block4_output = layers.add([block3_output, x])
-
     # Output Block
-    x = layers.Dense(80, activation="LeakyReLU")(block4_output)
+    x = layers.Dense(80, activation=LeakyReLU(alpha=ALPHA))(block3_output)
     x = BatchNormalization()(x)
-    x = layers.Dense(50, activation="LeakyReLU")(x)
+    x = layers.Dense(50, activation=LeakyReLU(alpha=ALPHA))(x)
     x = BatchNormalization()(x)
     outputs = layers.Dense(OUTPUTS_a, activation='softmax')(x)
 
     model = keras.Model(inputs, outputs)
 
-    model.compile(optimizer=Adam(learning_rate=LR), loss='categorical_crossentropy', metrics=[tf.keras.metrics.F1Score(average='macro'),'accuracy'])
+    model.compile(optimizer=AdamW(learning_rate=LR, weight_decay=WEIGHT_DECAY), loss='categorical_crossentropy', metrics=[tf.keras.metrics.F1Score(average='macro'),'accuracy'])
     #model.compile(optimizer=SGD(learning_rate=LR, momentum=0.9, weight_decay=0.01), loss='categorical_crossentropy', metrics=[tf.keras.metrics.F1Score(average='macro'),'accuracy'])
 
     save_model(model) #print Summary
