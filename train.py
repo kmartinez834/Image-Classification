@@ -50,9 +50,9 @@ DATA_DIR = os.getcwd() + os.path.sep + 'Data' + os.path.sep
 sep = os.path.sep
 os.chdir(OR_PATH) # Come back to the folder where the code resides , all files will be left on this directory
 
-n_epoch = 200
+n_epoch = 50
 BATCH_SIZE = 32 #https://medium.com/geekculture/how-does-batch-size-impact-your-model-learning-2dd34d9fb1fa
-LR = 0.001
+LR = 0.1
 '''LR = keras.optimizers.schedules.ExponentialDecay(
     initial_learning_rate=0.1,
     decay_steps=10000,
@@ -267,33 +267,34 @@ def save_model(model):
 
 #------------------------------------------------------------------------------------------------------------------
 
-'''def leaky_relu_model(inputs):
+def model_definition():
 
     inputs = keras.Input(shape=(INPUTS_r))
-    x = layers.Dense(300, activation="LeakyReLU")(inputs)
+    x = layers.GaussianNoise(0.2)(inputs)
+    x = layers.Dense(300, activation=LeakyReLU(alpha=ALPHA))(x)
     x = BatchNormalization()(x)
-    x = layers.Dense(200, activation="LeakyReLU")(x)
+    x = layers.Dense(200, activation=LeakyReLU(alpha=ALPHA))(x)
     x = BatchNormalization()(x)
-    x = layers.Dense(100, activation="LeakyReLU")(x)
+    x = layers.Dense(100, activation=LeakyReLU(alpha=ALPHA))(x)
     x = BatchNormalization()(x)
-    x = layers.Dense(100, activation="LeakyReLU")(x)
+    x = layers.Dense(100, activation=LeakyReLU(alpha=ALPHA))(x)
     x = BatchNormalization()(x)
-    x = layers.Dense(80, activation="LeakyReLU")(x)
+    x = layers.Dense(80, activation=LeakyReLU(alpha=ALPHA))(x)
     x = BatchNormalization()(x)
-    x = layers.Dense(50, activation="LeakyReLU")(x)
+    x = layers.Dense(50, activation=LeakyReLU(alpha=ALPHA))(x)
     x = BatchNormalization()(x)
+    outputs = layers.Dense(OUTPUTS_a, activation='softmax')(x)
 
-    return x'''
+    model = keras.Model(inputs, outputs)
+
+    model.compile(optimizer=Adam(learning_rate=LR), loss='categorical_crossentropy', metrics=[tf.keras.metrics.F1Score(average='macro'),'accuracy'])
+
+    save_model(model) #print Summary
+    return model
 
 #------------------------------------------------------------------------------------------------------------------
 
-def weighted_model():
-    return
-
-
-#------------------------------------------------------------------------------------------------------------------
-
-def model_definition():
+def res_model_definition():
 
     # Block 1
     inputs = keras.Input(shape=(INPUTS_r))
@@ -312,15 +313,8 @@ def model_definition():
     x = BatchNormalization()(x)
     block2_output = layers.add([block1_output, x])
 
-    # Block 3
-    x = layers.Dense(100, activation=LeakyReLU(alpha=ALPHA))(block2_output)
-    x = BatchNormalization()(x)
-    x = layers.Dense(100, activation=LeakyReLU(alpha=ALPHA))(x)
-    x = BatchNormalization()(x)
-    block3_output = layers.add([block2_output, x])
-
     # Output Block
-    x = layers.Dense(80, activation=LeakyReLU(alpha=ALPHA))(block3_output)
+    x = layers.Dense(80, activation=LeakyReLU(alpha=ALPHA))(block2_output)
     x = BatchNormalization()(x)
     x = layers.Dense(50, activation=LeakyReLU(alpha=ALPHA))(x)
     x = BatchNormalization()(x)
